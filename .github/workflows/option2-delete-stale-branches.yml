@@ -1,0 +1,154 @@
+name: Delete stale branches (One Fetch)
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  delete-stale-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo
+            const diffOfDate = 90 // số ngày kể từ commit cuối cùng
+
+            const graphqlPatterns = [
+              { prefix: 'feature/', requireClosedPR: true },
+              { prefix: 'test/', requireClosedPR: false },
+              { prefix: 'release/', requireClosedPR: false },
+              { prefix: 'revert-', requireClosedPR: true }
+            ]
+
+
+            async function fetchAllBranches() {
+              let hasNextPage = true
+              let endCursor = null
+              let allBranches = []
+
+              while (hasNextPage) {
+                const query = `
+                  query($owner: String!, $repo: String!, $cursor: String) {
+                    repository(owner: $owner, name: $repo) {
+                      refs(refPrefix: "refs/heads/", first: 100, after: $cursor) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          name
+                          target {
+                            ... on Commit { committedDate }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `
+
+                const result = await github.graphql(query, { owner, repo, cursor: endCursor })
+                const refs = result.repository.refs
+                const branches = refs.nodes
+
+                const batch = branches.map(branch => ({
+                  name: branch.name,
+                  lastCommitDate: new Date(branch.target.committedDate)
+                }))
+
+                allBranches.push(...batch)
+
+                hasNextPage = refs.pageInfo.hasNextPage
+                endCursor = refs.pageInfo.endCursor
+              }
+
+              return allBranches
+            }
+
+            const allBranches = await fetchAllBranches()
+            console.log(`\n✅ Tổng số branch trong repo: ${allBranches.length}`)
+
+            // Lọc branch theo pattern
+            let branchesToDelete = []
+            const patternStats = {}
+
+            for (const pattern of graphqlPatterns) {
+              const matched = allBranches.filter(b => b.name.startsWith(pattern.prefix))
+              patternStats[pattern.prefix] = matched.length
+
+              const mapped = matched.map(b => ({
+                name: b.name,
+                lastCommitDate: b.lastCommitDate,
+                requireClosedPR: pattern.requireClosedPR,
+                pattern: pattern.prefix
+              }))
+
+              branchesToDelete.push(...mapped)
+
+              console.log(`📊 Pattern "${pattern.prefix}": ${matched.length} branches`)
+              console.log(`   → First branch: ${matched[0]?.name || 'N/A'}`)
+            }
+
+            console.log('\n================================')
+            console.log(`Total branches to check: ${branchesToDelete.length}`)
+            console.log('================================\n')
+
+            // Hàm kiểm tra PR
+            async function isBranchCanDelete(branchName) {
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner,
+                repo,
+                head: `${owner}:${branchName}`,
+                state: 'all'
+              })
+              if (pullRequests.length === 0) return true
+              return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
+            }
+
+            // Xử lý xoá branch
+            let totalDeleted = 0
+            let totalSkipped = 0
+
+            for (const branch of branchesToDelete) {
+              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+
+              if (daysSince < diffOfDate) {
+                console.log(`⏩ Skipped (recent): ${branch.name} (${daysSince} days old)`)
+                totalSkipped++
+                continue
+              }
+
+              let canDelete = true
+              if (branch.requireClosedPR) {
+                canDelete = await isBranchCanDelete(branch.name)
+              }
+
+              if (!canDelete) {
+                console.log(`🚫 Skipped (PR open): ${branch.name}`)
+                totalSkipped++
+                continue
+              }
+
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                console.log(`🗑️ Deleted: ${branch.name} (${daysSince} days old)`)
+                totalDeleted++
+              } catch (err) {
+                console.log(`❌ Failed: ${branch.name} (${err.message})`)
+                totalSkipped++
+              }
+            }
+
+            console.log('\n================================')
+            console.log('📊 Pattern summary:')
+            for (const [pattern, count] of Object.entries(patternStats)) {
+              console.log(`- ${pattern.padEnd(10)}: ${count} branches`)
+            }
+            console.log('================================')
+            console.log(`Summary: ✅ Deleted=${totalDeleted}, ⏩ Skipped=${totalSkipped}`)
+            console.log('================================')
