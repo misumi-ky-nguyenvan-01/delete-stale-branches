@@ -75,7 +75,7 @@ jobs:
                 head: `${owner}:${branchName}`,
                 state: 'all'
               })
-              
+
               if (pullRequests.length === 0) return true
               return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
             }
