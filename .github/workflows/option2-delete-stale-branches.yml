@@ -77,7 +77,7 @@ jobs:
             const patternStats = {}
 
             for (const pattern of branchPatterns) {
-              const matched = allBranches.filter(b => b.name.startsWith(pattern.prefix))
+              const matched = allBranches.filter(btanchb => b.name.startsWith(pattern.prefix))
               patternStats[pattern.prefix] = matched.length
 
               const mapped = matched.map(b => ({
