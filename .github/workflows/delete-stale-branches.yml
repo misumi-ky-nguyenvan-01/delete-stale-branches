@@ -27,44 +27,24 @@ jobs:
             ]
 
             for (const pattern of graphqlPatterns) {
-              let allBranchesForPattern = []
-              let hasNextPage = true
-              let endCursor = null
-              
-              while (hasNextPage) {
-                const paginationArg = endCursor ? `, after: "${endCursor}"` : ""
-                const query = `{
-                  repository(owner: "${owner}", name: "${repo}") {
-                    refs(refPrefix: "refs/heads/${pattern.prefix}", first: 100${paginationArg}) {
-                      nodes {
-                        name
-                        target { ... on Commit { committedDate } }
-                      }
-                      pageInfo {
-                        hasNextPage
-                        endCursor
-                      }
+              const query = `{
+                repository(owner: "${owner}", name: "${repo}") {
+                  refs(refPrefix: "refs/heads/${pattern.prefix}", first: 50) {
+                    nodes {
+                      name
+                      target { ... on Commit { committedDate } }
                     }
                   }
-                }`
+                }
+              }`
 
-                const result = await github.graphql(query)
-                const refs = result.repository.refs
-                
-                const branches = refs.nodes.map(b => ({
-                  name: b.name,  // GraphQL already returns full name like "feature/branch-001"
-                  lastCommitDate: new Date(b.target.committedDate),
-                  requireClosedPR: pattern.requireClosedPR
-                }))
-                
-                allBranchesForPattern.push(...branches)
-                hasNextPage = refs.pageInfo.hasNextPage
-                endCursor = refs.pageInfo.endCursor
-                
-                console.log(`Found ${branches.length} branches for pattern '${pattern.prefix}' (total so far: ${allBranchesForPattern.length})`)
-              }
-              
-              branchesToDelete.push(...allBranchesForPattern)
+              const result = await github.graphql(query)
+              const branches = result.repository.refs.nodes.map(b => ({
+                name: `${pattern.prefix}${b.name}`,
+                lastCommitDate: new Date(b.target.committedDate),
+                requireClosedPR: pattern.requireClosedPR
+              }))
+              branchesToDelete.push(...branches)
             }
 
             // REST API pattern revert-
