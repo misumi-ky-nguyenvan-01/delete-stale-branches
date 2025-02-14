@@ -143,6 +143,4 @@ jobs:
             for (const [pattern, count] of Object.entries(patternStats)) {
               console.log(`- ${pattern.padEnd(10)}: ${count} branches`)
             }
-            console.log('================================')
             console.log(`Summary: ✅ Deleted=${totalDeleted}, ⏩ Skipped=${totalSkipped}`)
-            console.log('================================')
