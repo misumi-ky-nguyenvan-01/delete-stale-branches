@@ -40,7 +40,7 @@ jobs:
 
               const result = await github.graphql(query)
               const branches = result.repository.refs.nodes.map(b => ({
-                name: `${pattern.prefix}${b.name}`,
+                name: ,
                 lastCommitDate: new Date(b.target.committedDate),
                 requireClosedPR: pattern.requireClosedPR
               }))
