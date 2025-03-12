@@ -35,7 +35,7 @@ jobs:
             if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
             
             const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}')
-            const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}') || 50
+            const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}')
             const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
 
             console.log(`📊 設定値: DRY_RUN=${DRY_RUN}, MAX_DELETIONS=${MAX_DELETIONS}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
