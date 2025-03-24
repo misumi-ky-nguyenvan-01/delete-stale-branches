@@ -71,7 +71,7 @@ jobs:
             }
 
             const allBranches = await fetchAllBranches()
-            console.log(`Total branches: ${allBranches.length}`)
+            console.log(`Total branches fetched: ${allBranches.length}`)
 
             // Lọc branch theo pattern
             let branchesToDelete = []
