@@ -89,8 +89,8 @@ jobs:
 
               branchesToDelete.push(...mapped)
 
-              console.log(`📊 Pattern "${pattern.prefix}": ${matched.length} branches`)
-              console.log(`   → First branch: ${matched[0]?.name || 'N/A'}`)
+              console.log(`Pattern "${pattern.prefix}": ${matched.length} branches`)
+              console.log(`First branch: ${matched[0]?.name || 'N/A'}`)
             }
 
             console.log('\n================================')
