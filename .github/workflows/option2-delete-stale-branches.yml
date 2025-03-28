@@ -95,7 +95,6 @@ jobs:
 
             console.log(`Total branches to check delete: ${branchesToDelete.length}`)
 
-            // Hàm kiểm tra PR
             async function isBranchCanDelete(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
                 owner,
