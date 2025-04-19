@@ -19,7 +19,7 @@ jobs:
             const { owner, repo } = context.repo
             const diffOfDate = 90 // số ngày kể từ commit cuối cùng
 
-            const graphqlPatterns = [
+            const branchPatterns = [
               { prefix: 'feature/', requireClosedPR: true },
               { prefix: 'test/', requireClosedPR: false },
               { prefix: 'release/', requireClosedPR: false },
@@ -76,7 +76,7 @@ jobs:
             let branchesToDelete = []
             const patternStats = {}
 
-            for (const pattern of graphqlPatterns) {
+            for (const pattern of branchPatterns) {
               const matched = allBranches.filter(b => b.name.startsWith(pattern.prefix))
               patternStats[pattern.prefix] = matched.length
 
