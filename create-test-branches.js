@@ -1,146 +1,109 @@
-name: Delete stale branches (One Fetch)
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+const { execSync } = require("child_process");
 
-jobs:
-  delete-stale-branches:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+// Branch configurations
+const branchConfigs = [
+  { pattern: "feature/", count: 12 },
+  { pattern: "test/", count: 100 },
+  { pattern: "release/", count: 100 },
+  { pattern: "revert-", count: 10 },
+];
 
-    steps:
-      - uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo } = context.repo
-            const diffOfDate = 90 // số ngày kể từ commit cuối cùng
+function createBranch(branchName, daysOld) {
+  try {
+    // Create branch
+    execSync(`git branch ${branchName}`, { stdio: "pipe" });
 
-            const branchPatterns = [
-              { prefix: 'feature/', requireClosedPR: true },
-              { prefix: 'test/', requireClosedPR: false },
-              { prefix: 'release/', requireClosedPR: false },
-              { prefix: 'revert-', requireClosedPR: true }
-            ]
+    // Create a commit with backdated timestamp
+    const commitDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+    const dateStr = commitDate.toISOString();
 
+    // Create a small change
+    execSync(
+      `echo "// ${branchName} - ${daysOld} days old" > test/branch/${branchName.replace(
+        /[\/\-]/g,
+        "_"
+      )}.txt`,
+      { stdio: "pipe" }
+    );
+    execSync(`git add .`, { stdio: "pipe" });
+    execSync(`git commit -m "Add ${branchName}" --date="${dateStr}"`, {
+      stdio: "pipe",
+      env: { ...process.env, GIT_COMMITTER_DATE: dateStr },
+    });
+    execSync(`git push origin ${branchName}`, { stdio: "pipe" });
 
-            async function fetchAllBranches() {
-              let hasNextPage = true
-              let endCursor = null
-              let allBranches = []
+    console.log(`✅ Created ${branchName} (${daysOld} days old)`);
+  } catch (error) {
+    console.log(`❌ Failed to create ${branchName}: ${error.message}`);
+  }
+}
 
-              while (hasNextPage) {
-                const query = `
-                  query($owner: String!, $repo: String!, $cursor: String) {
-                    repository(owner: $owner, name: $repo) {
-                      refs(refPrefix: "refs/heads/", first: 100, after: $cursor) {
-                        pageInfo {
-                          hasNextPage
-                          endCursor
-                        }
-                        nodes {
-                          name
-                          target {
-                            ... on Commit { committedDate }
-                          }
-                        }
-                      }
-                    }
-                  }
-                `
+function generateBranchName(pattern, index) {
+  if (pattern === "revert-") {
+    return `${pattern}${Math.floor(Math.random() * 10000)}-fix-issue-${index}`;
+  }
+  return `${pattern}branch-${index.toString().padStart(3, "0")}`;
+}
 
-                const result = await github.graphql(query, { owner, repo, cursor: endCursor })
-                const refs = result.repository.refs
-                const branches = refs.nodes
+function getRandomAge() {
+  // Generate random ages: 70% > 90 days (stale), 30% < 90 days (fresh)
+  if (Math.random() < 0.7) {
+    return Math.floor(Math.random() * 200) + 91; // 91-290 days (stale)
+  } else {
+    return Math.floor(Math.random() * 89) + 1; // 1-89 days (fresh)
+  }
+}
 
-                const batch = branches.map(branch => ({
-                  name: branch.name,
-                  lastCommitDate: new Date(branch.target.committedDate)
-                }))
+async function main() {
+  console.log("🚀 Starting test branch creation...\n");
 
-                allBranches.push(...batch)
+  // Ensure we're on main branch
+  try {
+    execSync("git checkout main", { stdio: "pipe" });
+  } catch (error) {
+    console.log("⚠️  Could not checkout main branch, continuing...");
+  }
 
-                hasNextPage = refs.pageInfo.hasNextPage
-                endCursor = refs.pageInfo.endCursor
-              }
+  let totalCreated = 0;
+  let staleCount = 0;
 
-              return allBranches
-            }
+  for (const config of branchConfigs) {
+    console.log(
+      `\n📝 Creating ${config.count} branches with pattern: ${config.pattern}`
+    );
 
-            const allBranches = await fetchAllBranches()
-            console.log(`Total branches fetched: ${allBranches.length}`)
+    for (let i = 1; i <= config.count; i++) {
+      const branchName = generateBranchName(config.pattern, i);
+      const daysOld = getRandomAge();
 
-            let branchesToDelete = []
-            const patternStats = {}
+      if (daysOld > 90) staleCount++;
 
-            for (const pattern of branchPatterns) {
-              const matched = allBranches.filter(branch => branch.name.startsWith(pattern.prefix))
-              patternStats[pattern.prefix] = matched.length
+      createBranch(branchName, daysOld);
+      totalCreated++;
 
-              const mapped = matched.map(branch => ({
-                name: branch.name,
-                lastCommitDate: branch.lastCommitDate,
-                requireClosedPR: pattern.requireClosedPR,
-                pattern: pattern.prefix
-              }))
+      // Progress indicator
+      if (i % 50 === 0) {
+        console.log(
+          `   Progress: ${i}/${config.count} (${Math.round(
+            (i / config.count) * 100
+          )}%)`
+        );
+      }
+    }
+  }
 
-              branchesToDelete.push(...mapped)
+  // Return to main branch
+  try {
+    execSync("git checkout main", { stdio: "pipe" });
+  } catch (error) {
+    console.log("⚠️  Could not return to main branch");
+  }
 
-              console.log(`Pattern "${pattern.prefix}": ${matched.length} branches`)
-              console.log(`First branch: ${matched[0]?.name || 'N/A'}`)
-            }
+  console.log(`\n🎉 Branch creation completed!`);
+  console.log(`📊 Total branches created: ${totalCreated}`);
+  console.log(`🗑️  Stale branches (>90 days): ${staleCount}`);
+  console.log(`🌱 Fresh branches (<90 days): ${totalCreated - staleCount}`);
+  console.log(`\n💡 Run the GitHub Action to test stale branch deletion`);
+}
 
-            console.log(`Total branches to check delete: ${branchesToDelete.length}`)
-
-            async function isBranchCanDelete(branchName) {
-              const { data: pullRequests } = await github.rest.pulls.list({
-                owner,
-                repo,
-                head: `${owner}:${branchName}`,
-                state: 'all'
-              })
-              if (pullRequests.length === 0) return true
-              return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
-            }
-
-            let totalDeleted = 0
-            let totalSkipped = 0
-
-            for (const branch of branchesToDelete) {
-              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
-
-              if (daysSince < diffOfDate) {
-                console.log(`⏩ Skipped (recent): ${branch.name} (${daysSince} days old)`)
-                totalSkipped++
-                continue
-              }
-
-              let canDelete = true
-              if (branch.requireClosedPR) {
-                canDelete = await isBranchCanDelete(branch.name)
-              }
-
-              if (!canDelete) {
-                console.log(`🚫 Skipped (PR open): ${branch.name}`)
-                totalSkipped++
-                continue
-              }
-
-              try {
-                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                console.log(`✅  Deleted: ${branch.name} (${daysSince} days old)`)
-                totalDeleted++
-              } catch (err) {
-                console.log(`❌ Failed: ${branch.name} (${err.message})`)
-                totalSkipped++
-              }
-            }
-
-            console.log('Summary:')
-            for (const [pattern, count] of Object.entries(patternStats)) {
-              console.log(`- ${pattern.padEnd(10)}: ${count} branches`)
-            }
-            console.log(`Summary: ✅ Deleted=${totalDeleted}, ⏩ Skipped=${totalSkipped}`)
+main().catch(console.error);
