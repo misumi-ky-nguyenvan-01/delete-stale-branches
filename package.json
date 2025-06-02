@@ -1,0 +1,13 @@
+{
+  "name": "delete-stale-branches-test",
+  "version": "1.0.0",
+  "description": "Test script for stale branch deletion",
+  "main": "create-test-branches.js",
+  "scripts": {
+    "create-branches": "node create-test-branches.js",
+    "test": "echo \"Run npm run create-branches to create test branches\""
+  },
+  "keywords": ["git", "branches", "cleanup", "github-actions"],
+  "author": "",
+  "license": "MIT"
+}

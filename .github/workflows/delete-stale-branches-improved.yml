@@ -1,0 +1,99 @@
+name: Delete stale branches (Improved)
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  delete-stale-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo
+            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) // 90 days ago
+            
+            // Branch patterns to check
+            const branchPatterns = [
+              'refs/heads/feature/',
+              'refs/heads/test/', 
+              'refs/heads/release/',
+              'refs/heads/revert-'
+            ]
+            
+            async function getBranchesWithPagination(refPrefix) {
+              let allBranches = []
+              let hasNextPage = true
+              let cursor = null
+              
+              while (hasNextPage) {
+                const query = `query($owner: String!, $repo: String!, $refPrefix: String!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    refs(refPrefix: $refPrefix, first: 100, after: $cursor) {
+                      nodes {
+                        name
+                        target {
+                          ... on Commit {
+                            committedDate
+                          }
+                        }
+                      }
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                    }
+                  }
+                }`
+                
+                try {
+                  const result = await github.graphql(query, { owner, repo, refPrefix, cursor })
+                  const refs = result.repository.refs
+                  allBranches.push(...refs.nodes)
+                  hasNextPage = refs.pageInfo.hasNextPage
+                  cursor = refs.pageInfo.endCursor
+                } catch (error) {
+                  console.log(`Error fetching branches for ${refPrefix}: ${error.message}`)
+                  break
+                }
+              }
+              
+              return allBranches
+            }
+            
+            let totalDeleted = 0
+            let totalChecked = 0
+            
+            for (const pattern of branchPatterns) {
+              console.log(`\nChecking branches with pattern: ${pattern}`)
+              const branches = await getBranchesWithPagination(pattern)
+              console.log(`Found ${branches.length} branches`)
+              
+              for (const branch of branches) {
+                totalChecked++
+                const lastCommitDate = new Date(branch.target.committedDate)
+                const daysSinceLastCommit = Math.floor((Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+                
+                if (lastCommitDate < cutoffDate) {
+                  try {
+                    await github.rest.git.deleteRef({ 
+                      owner, 
+                      repo, 
+                      ref: `heads/${branch.name}` 
+                    })
+                    console.log(`✅ Deleted stale branch: ${branch.name} (${daysSinceLastCommit} days old)`)
+                    totalDeleted++
+                  } catch (error) {
+                    console.log(`❌ Failed to delete ${branch.name}: ${error.message}`)
+                  }
+                } else {
+                  console.log(`⏭️  Keeping ${branch.name} (${daysSinceLastCommit} days old)`)
+                }
+              }
+            }
+            
+            console.log(`\n📊 Summary: Checked ${totalChecked} branches, deleted ${totalDeleted} stale branches`)

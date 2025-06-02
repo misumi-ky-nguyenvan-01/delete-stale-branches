@@ -1,0 +1,53 @@
+name: Delete stale branches
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+jobs:
+  delete-stale-branches:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo
+            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) // 90 days ago
+
+            const query = `query($owner: String!, $repo: String!) {
+              repository(owner: $owner, name: $repo) {
+                refs(refPrefix: "refs/heads/feature/", first: 100) {
+                  nodes {
+                    name
+                    target {
+                      ... on Commit {
+                        committedDate
+                      }
+                    }
+                  }
+                }
+              }
+            }`
+            
+            const result = await github.graphql(query, { owner, repo })
+            const branches = result.repository.refs.nodes
+            
+            for (const branch of branches) {
+              const lastCommitDate = new Date(branch.target.committedDate)
+              
+              if (lastCommitDate < cutoffDate) {
+                try {
+                  await github.rest.git.deleteRef({ 
+                    owner, 
+                    repo, 
+                    ref: `heads/${branch.name}` 
+                  })
+                  console.log(`Deleted stale branch: ${branch.name}`)
+                } catch (error) {
+                  console.log(`Failed to delete ${branch.name}: ${error.message}`)
+                }
+              }
+            }
