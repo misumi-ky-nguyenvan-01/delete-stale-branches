@@ -113,7 +113,7 @@ jobs:
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
               if (daysSince < diffOfDate) {
-                console.log(`Skipped (recent commit): ${branch.name} (${daysSince} days old)`)
+                console.log(`⏩ Skipped (recent): ${branch.name} (${daysSince} days old)`)
                 totalSkipped++
                 continue
               }
