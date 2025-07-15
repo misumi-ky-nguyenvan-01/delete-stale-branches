@@ -131,7 +131,7 @@ jobs:
 
               try {
                 await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                console.log(`🗑️ Deleted: ${branch.name} (${daysSince} days old)`)
+                console.log(`✅  Deleted: ${branch.name} (${daysSince} days old)`)
                 totalDeleted++
               } catch (err) {
                 console.log(`❌ Failed: ${branch.name} (${err.message})`)
