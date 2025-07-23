@@ -18,7 +18,7 @@ const branchConfigs = [
 function createBranch(branchName, daysOld) {
   try {
     // Create branch
-    execSync(`git checkout -b ${branchName}`, { stdio: 'pipe' });
+    execSync(`git branch ${branchName}`, { stdio: 'pipe' });
     
     // Create a commit with backdated timestamp
     const commitDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
