@@ -62,7 +62,7 @@ jobs:
               })
 
               branchesToDelete.push({
-                name: b.name,
+                name: ,
                 lastCommitDate: new Date(branchDetail.commit.commit.committer.date),
                 requireClosedPR: true
               })
