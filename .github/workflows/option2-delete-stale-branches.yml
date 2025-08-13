@@ -80,9 +80,9 @@ jobs:
               const matched = allBranches.filter(branch => branch.name.startsWith(pattern.prefix))
               patternStats[pattern.prefix] = matched.length
 
-              const mapped = matched.map(b => ({
-                name: b.name,
-                lastCommitDate: b.lastCommitDate,
+              const mapped = matched.map(branch => ({
+                name: branch.name,
+                lastCommitDate: branch.lastCommitDate,
                 requireClosedPR: pattern.requireClosedPR,
                 pattern: pattern.prefix
               }))
