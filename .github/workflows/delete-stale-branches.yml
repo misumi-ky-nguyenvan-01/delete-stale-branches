@@ -34,9 +34,12 @@ jobs:
             const logDir = path.dirname(LOG_FILE_PATH)
             if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
             
-            const DIFF_OR_DATE = parseInt(core.getInput('diff_or_date'))
-            const MAX_DELETIONS = parseInt(core.getInput('max_deletions'))
-            const DRY_RUN = core.getInput('dry_run') === 'true'
+            // Get inputs from workflow_dispatch
+            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}') || 90
+            const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}') || 50
+            const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
+
+            console.log(`📊 設定値: DRY_RUN=${DRY_RUN}, MAX_DELETIONS=${MAX_DELETIONS}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
 
             const branchPatterns = [
               { prefix: 'feature/', requireClosedPR: true },
