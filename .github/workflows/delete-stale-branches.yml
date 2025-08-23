@@ -34,7 +34,7 @@ jobs:
             const logDir = path.dirname(LOG_FILE_PATH)
             if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
             
-            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}') || 90
+            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}')
             const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}') || 50
             const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
 
