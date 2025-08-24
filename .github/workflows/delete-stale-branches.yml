@@ -30,7 +30,7 @@ jobs:
             const fs = require('fs')
             const path = require('path')
 
-            const LOG_FILE_PATH = path.join(__dirname, '..', 'logs', 'deleted-branches.log')
+            const LOG_FILE_PATH = path.join(process.cwd(), 'logs', 'deleted-branches.log')
             const logDir = path.dirname(LOG_FILE_PATH)
             if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
             
