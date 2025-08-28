@@ -93,7 +93,7 @@ jobs:
               console.log(`First branch: ${matched[0]?.name || 'N/A'}`)
             }
 
-            console.log(`Total branches to check: ${branchesToDelete.length}`)
+            console.log(`Total branches to check delete: ${branchesToDelete.length}`)
 
             // Hàm kiểm tra PR
             async function isBranchCanDelete(branchName) {
