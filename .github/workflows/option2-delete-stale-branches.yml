@@ -106,7 +106,6 @@ jobs:
               return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
             }
 
-            // Xử lý xoá branch
             let totalDeleted = 0
             let totalSkipped = 0
 
