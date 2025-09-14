@@ -10,9 +10,9 @@ const { execSync } = require("child_process");
 // Branch configurations
 const branchConfigs = [
   { pattern: "feature/", count: 12 },
-  { pattern: "test/", count: 50 },
-  { pattern: "release/", count: 50 },
-  { pattern: "revert-", count: 50 },
+  { pattern: "test/", count: 100 },
+  { pattern: "release/", count: 100 },
+  { pattern: "revert-", count: 10 },
 ];
 
 function createBranch(branchName, daysOld) {
