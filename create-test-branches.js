@@ -1,10 +1,3 @@
-#!/usr/bin/env node
-
-/**
- * Script to create test branches for testing stale branch deletion
- * Usage: node create-test-branches.js
- */
-
 const { execSync } = require("child_process");
 
 // Branch configurations
