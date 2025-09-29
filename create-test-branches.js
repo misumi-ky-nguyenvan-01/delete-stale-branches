@@ -25,7 +25,7 @@ function createBranch(branchName, daysOld) {
     const dateStr = commitDate.toISOString();
     
     // Create a small change
-    execSync(`echo "// ${branchName} - ${daysOld} days old" > ${branchName.replace(/[\/\-]/g, '_')}.txt`, { stdio: 'pipe' });
+    execSync(`echo "// ${branchName} - ${daysOld} days old" > test/branch/${branchName.replace(/[\/\-]/g, '_')}.txt`, { stdio: 'pipe' });
     execSync(`git add .`, { stdio: 'pipe' });
     execSync(`git commit -m "Add ${branchName}" --date="${dateStr}"`, { 
       stdio: 'pipe',
