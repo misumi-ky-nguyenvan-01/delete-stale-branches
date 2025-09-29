@@ -1,4 +1,4 @@
-name: Delete stale branches (Improved)
+name: Delete stale branches (All fetched first)
 on:
   push:
     branches:
@@ -15,71 +15,103 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) // 90 days ago
-            
-            const patterns = [
-              { prefix: 'feature/', requireClosedMergedPR: true },
-              { prefix: 'test/', requireClosedMergedPR: false },
-              { prefix: 'release/', requireClosedMergedPR: false },
-              { prefix: 'revert-', requireClosedMergedPR: true }
+            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+
+            let branchesToDelete = []
+
+            // GraphQL patterns: feature/, test/, release/
+            const graphqlPatterns = [
+              { prefix: 'feature/', requireClosedPR: true },
+              { prefix: 'test/', requireClosedPR: false },
+              { prefix: 'release/', requireClosedPR: false }
             ]
-            
-            async function isPRClosedMerged(branchName) {
-              const { data: pullRequests } = await github.rest.pulls.list({
-                owner, repo, head: `${owner}:${branchName}`, state: 'all'
-              })
-              return pullRequests.length > 0 && 
-                    pullRequests.every(pullRequest => pullRequest.state === 'closed' || pullRequest.state === 'merged')
-            }
-            
-            let totalDeleted = 0
-            
-            for (const pattern of patterns) {
+
+            for (const pattern of graphqlPatterns) {
               const query = `{
                 repository(owner: "${owner}", name: "${repo}") {
-                  refs(refPrefix: "refs/heads/${pattern.prefix}", first: 100) {
+                  refs(refPrefix: "refs/heads/${pattern.prefix}", first: 50) {
                     nodes {
                       name
-                      target {
-                        ... on Commit {
-                          committedDate
-                        }
-                      }
+                      target { ... on Commit { committedDate } }
                     }
                   }
                 }
               }`
-              
+
               const result = await github.graphql(query)
-              const branches = result.repository.refs.nodes
-              
-              console.log(`📊 Found ${branches.length} branches for pattern: ${pattern.prefix}`)
-              
-              for (const branch of branches) {
-                const lastCommitDate = new Date(branch.target.committedDate)
-                const daysSince = Math.floor((Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
-                
-                if (lastCommitDate < cutoffDate) {
-                  let canDelete = true
-                  
-                  if (pattern.requireClosedMergedPR) {
-                    canDelete = await isPRClosedMerged(branch.name)
-                  }
-                  
-                  if (canDelete) {
-                    try {
-                      await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                      console.log(`✅ Deleted: ${branch.name} (${daysSince} days old)`)
-                      totalDeleted++
-                    } catch (error) {
-                      console.log(`❌ Failed to delete ${branch.name}: ${error.message}`)
-                    }
-                  } else {
-                    console.log(`❌ Skipped: ${branch.name} (PR not closed)`)
-                  }
-                }
+              const branches = result.repository.refs.nodes.map(b => ({
+                name: b.name,
+                lastCommitDate: new Date(b.target.committedDate),
+                requireClosedPR: pattern.requireClosedPR
+              }))
+              branchesToDelete.push(...branches)
+            }
+
+            // REST API pattern revert-
+            const { data: allBranches } = await github.rest.repos.listBranches({
+              owner, repo, per_page: 100
+            })
+
+            const revertBranches = allBranches
+              .filter(b => b.name.startsWith('revert-'))
+              .slice(0, 50)
+
+            for (const b of revertBranches) {
+              const { data: branchDetail } = await github.rest.repos.getBranch({
+                owner, repo, branch: b.name
+              })
+
+              branchesToDelete.push({
+                name: b.name,
+                lastCommitDate: new Date(branchDetail.commit.commit.committer.date),
+                requireClosedPR: true
+              })
+            }
+
+            async function isBranchCanDelete(branchName) {
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner,
+                repo,
+                head: `${owner}:${branchName}`,
+                state: 'all'
+              })
+              if (pullRequests.length === 0) return true
+              return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
+            }
+
+            console.log(`Total branches fetched: ${branchesToDelete.length}`)
+
+            let totalDeleted = 0
+            let totalSkipped = 0
+
+            for (const branch of branchesToDelete) {
+              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+
+              if (branch.lastCommitDate < cutoffDate) {
+                console.log(`Skipped (recent commit): ${branch.name} (${daysSince} days old)`)
+                totalSkipped++
+                continue
+              }
+
+              let canDelete = true
+              if (branch.requireClosedPR) {
+                canDelete = await isBranchCanDelete(branch.name)
+              }
+
+              if (!canDelete) {
+                console.log(`Skipped (PR open): ${branch.name}`)
+                totalSkipped++
+                continue
+              }
+
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                console.log(`Deleted: ${branch.name} (${daysSince} days old)`)
+                totalDeleted++
+              } catch (err) {
+                console.log(`Failed: ${branch.name} (${err.message})`)
+                totalSkipped++
               }
             }
-            
-            console.log(`📈 Summary:`)
-            console.log(`📊 Total deleted: ${totalDeleted}`)
+
+            console.log(`Summary: Deleted=${totalDeleted}, Skipped=${totalSkipped}`)
