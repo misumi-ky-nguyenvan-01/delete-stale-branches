@@ -40,7 +40,7 @@ jobs:
 
               const result = await github.graphql(query)
               const branches = result.repository.refs.nodes.map(b => ({
-                name: b.name,
+                name: `${pattern.prefix}${b.name}`,
                 lastCommitDate: new Date(b.target.committedDate),
                 requireClosedPR: pattern.requireClosedPR
               }))
@@ -87,7 +87,7 @@ jobs:
             for (const branch of branchesToDelete) {
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
-              if (branch.lastCommitDate > cutoffDate) {
+              if (branch.lastCommitDate < cutoffDate) {
                 console.log(`Skipped (recent commit): ${branch.name} (${daysSince} days old)`)
                 totalSkipped++
                 continue
