@@ -37,6 +37,7 @@ function createBranch(branchName, daysOld) {
       stdio: "pipe",
       env: { ...process.env, GIT_COMMITTER_DATE: dateStr },
     });
+    execSync(`git push origin ${branchName}`, { stdio: "pipe" });
 
     console.log(`✅ Created ${branchName} (${daysOld} days old)`);
   } catch (error) {
