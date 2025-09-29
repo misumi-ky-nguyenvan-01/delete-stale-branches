@@ -15,7 +15,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const diffOfDate = 90 * 24 * 60 * 60 * 1000
+            const diffOfDate = 90
 
             let branchesToDelete = []
 
@@ -85,7 +85,7 @@ jobs:
             let totalSkipped = 0
 
             for (const branch of branchesToDelete) {
-              const daysSince = Date.now() - branch.lastCommitDate.getTime()
+              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
               if (daysSince < diffOfDate) {
                 console.log(`Skipped (recent commit): ${branch.name} (${daysSince} days old)`)
