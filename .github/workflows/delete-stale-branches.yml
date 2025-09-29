@@ -1,4 +1,4 @@
-name: Delete stale branches
+name: Delete stale branches (Improved)
 on:
   push:
     branches:
@@ -16,38 +16,110 @@ jobs:
           script: |
             const { owner, repo } = context.repo
             const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) // 90 days ago
-
-            const query = `query($owner: String!, $repo: String!) {
-              repository(owner: $owner, name: $repo) {
-                refs(refPrefix: "refs/heads/feature/", first: 100) {
-                  nodes {
-                    name
-                    target {
-                      ... on Commit {
-                        committedDate
-                      }
-                    }
+            
+            // Branch patterns to check (without refs/heads/ prefix)
+            const branchPatterns = [
+              'feature/',
+              'test/', 
+              'release/',
+              'revert-'
+            ]
+            
+            async function getAllBranches() {
+              let allBranches = []
+              let page = 1
+              let hasMore = true
+              
+              while (hasMore) {
+                try {
+                  console.log(`📄 Fetching branches page ${page}...`)
+                  const { data: branches } = await github.rest.repos.listBranches({
+                    owner,
+                    repo,
+                    per_page: 100,
+                    page: page
+                  })
+                  
+                  if (branches.length === 0) {
+                    hasMore = false
+                  } else {
+                    allBranches.push(...branches)
+                    page++
                   }
+                } catch (error) {
+                  console.log(`❌ Error fetching branches page ${page}: ${error.message}`)
+                  hasMore = false
                 }
               }
-            }`
-            
-            const result = await github.graphql(query, { owner, repo })
-            const branches = result.repository.refs.nodes
-            
-            for (const branch of branches) {
-              const lastCommitDate = new Date(branch.target.committedDate)
               
-              if (lastCommitDate < cutoffDate) {
-                try {
-                  await github.rest.git.deleteRef({ 
-                    owner, 
-                    repo, 
-                    ref: `heads/${branch.name}` 
-                  })
-                  console.log(`Deleted stale branch: ${branch.name}`)
-                } catch (error) {
-                  console.log(`Failed to delete ${branch.name}: ${error.message}`)
+              return allBranches
+            }
+            
+            console.log('🔍 Starting branch cleanup process...')
+            console.log(`📅 Cutoff date: ${cutoffDate.toISOString()} (90 days ago)`)
+            
+            const allBranches = await getAllBranches()
+            console.log(`📊 Found ${allBranches.length} total branches`)
+            
+            // Filter branches by patterns
+            const branchesToCheck = allBranches.filter(branch => {
+              const matchesPattern = branchPatterns.some(pattern => branch.name.startsWith(pattern))
+              if (matchesPattern) {
+                console.log(`🎯 Branch matches pattern: ${branch.name}`)
+              }
+              return matchesPattern
+            })
+            
+            console.log(`🔍 Found ${branchesToCheck.length} branches matching patterns`)
+            
+            let totalDeleted = 0
+            let totalChecked = 0
+            let skipped = 0
+            
+            for (const branch of branchesToCheck) {
+              totalChecked++
+              console.log(`\n[${totalChecked}/${branchesToCheck.length}] 🔍 Checking: ${branch.name}`)
+              
+              try {
+                // Get detailed branch info including commit date
+                const { data: branchDetail } = await github.rest.repos.getBranch({
+                  owner,
+                  repo,
+                  branch: branch.name
+                })
+                
+                const lastCommitDate = new Date(branchDetail.commit.commit.committer.date)
+                const daysSinceLastCommit = Math.floor((Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+                
+                console.log(`📅 Last commit: ${lastCommitDate.toISOString()} (${daysSinceLastCommit} days ago)`)
+                
+                if (lastCommitDate < cutoffDate) {
+                  console.log(`🗑️  Branch is stale, attempting to delete...`)
+                  try {
+                    await github.rest.git.deleteRef({ 
+                      owner, 
+                      repo, 
+                      ref: `heads/${branch.name}` 
+                    })
+                    console.log(`✅ Successfully deleted: ${branch.name}`)
+                    totalDeleted++
+                  } catch (deleteError) {
+                    console.log(`❌ Failed to delete ${branch.name}: ${deleteError.message}`)
+                  }
+                } else {
+                  console.log(`⏭️  Keeping ${branch.name} (not stale)`)
+                  skipped++
                 }
+                
+              } catch (error) {
+                console.log(`⚠️  Could not get branch details for ${branch.name}: ${error.message}`)
+                skipped++
               }
             }
+            
+            console.log(`\n🎉 Branch cleanup completed!`)
+            console.log(`📊 Summary:`)
+            console.log(`   • Total checked: ${totalChecked}`)
+            console.log(`   • Successfully deleted: ${totalDeleted}`)
+            console.log(`   • Skipped/kept: ${skipped}`)
+            console.log(`   • Failure rate: ${totalChecked > 0 ? Math.round((skipped / totalChecked) * 100) : 0}%`)
