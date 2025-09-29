@@ -15,15 +15,29 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+            const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) // 90 days ago
             
-            const patterns = ['feature/', 'test/', 'release/', 'revert-']
+            const patterns = [
+              { prefix: 'feature/', requireClosedMergedPR: true },
+              { prefix: 'test/', requireClosedMergedPR: false },
+              { prefix: 'release/', requireClosedMergedPR: false },
+              { prefix: 'revert-', requireClosedMergedPR: true }
+            ]
+            
+            async function isPRClosedMerged(branchName) {
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner, repo, head: `${owner}:${branchName}`, state: 'all'
+              })
+              return pullRequests.length > 0 && 
+                    pullRequests.every(pullRequest => pullRequest.state === 'closed' || pullRequest.state === 'merged')
+            }
+            
             let totalDeleted = 0
             
             for (const pattern of patterns) {
               const query = `{
                 repository(owner: "${owner}", name: "${repo}") {
-                  refs(refPrefix: "refs/heads/${pattern}", first: 50) {
+                  refs(refPrefix: "refs/heads/${pattern.prefix}", first: 100) {
                     nodes {
                       name
                       target {
@@ -39,22 +53,33 @@ jobs:
               const result = await github.graphql(query)
               const branches = result.repository.refs.nodes
               
-              console.log(`Found ${branches.length} branches for pattern: ${pattern}`)
+              console.log(`📊 Found ${branches.length} branches for pattern: ${pattern.prefix}`)
               
               for (const branch of branches) {
                 const lastCommitDate = new Date(branch.target.committedDate)
                 const daysSince = Math.floor((Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
                 
                 if (lastCommitDate < cutoffDate) {
-                  try {
-                    await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                    console.log(`Deleted: ${branch.name} (${daysSince} days old)`)
-                    totalDeleted++
-                  } catch (error) {
-                    console.log(`Failed to delete ${branch.name}: ${error.message}`)
+                  let canDelete = true
+                  
+                  if (pattern.requireClosedMergedPR) {
+                    canDelete = await isPRClosedMerged(branch.name)
+                  }
+                  
+                  if (canDelete) {
+                    try {
+                      await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                      console.log(`✅ Deleted: ${branch.name} (${daysSince} days old)`)
+                      totalDeleted++
+                    } catch (error) {
+                      console.log(`❌ Failed to delete ${branch.name}: ${error.message}`)
+                    }
+                  } else {
+                    console.log(`❌ Skipped: ${branch.name} (PR not closed)`)
                   }
                 }
               }
             }
             
-            console.log(`Total deleted: ${totalDeleted}`)
+            console.log(`📈 Summary:`)
+            console.log(`📊 Total deleted: ${totalDeleted}`)
