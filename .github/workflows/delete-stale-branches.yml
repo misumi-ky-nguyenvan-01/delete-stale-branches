@@ -33,7 +33,7 @@ jobs:
 
               const query = `{
                 repository(owner: "${owner}", name: "${repo}") {
-                  refs(refPrefix: "${refPrefix}", first: 500) {
+                  refs(refPrefix: "${refPrefix}", first: 100) {
                     nodes {
                       name
                       target { ... on Commit { committedDate } }
@@ -44,6 +44,7 @@ jobs:
 
               const result = await github.graphql(query)
               let branches = result.repository.refs.nodes
+
               if (isRevert) {
                 branches = branches.filter(branch => branch.name.startsWith('revert-'))
               }
