@@ -18,6 +18,7 @@ jobs:
             const diffOfDate = 90
 
             let branchesToDelete = []
+            let patternStats = {}
 
             // GraphQL patterns: feature/, test/, release/
             const graphqlPatterns = [
@@ -25,6 +26,8 @@ jobs:
               { prefix: 'test/', requireClosedPR: false },
               { prefix: 'release/', requireClosedPR: false }
             ]
+
+            console.log('🔍 Bắt đầu kiểm tra các pattern branches...')
 
             for (const pattern of graphqlPatterns) {
               const query = `{
@@ -42,8 +45,13 @@ jobs:
               const branches = result.repository.refs.nodes.map(b => ({
                 name: `${pattern.prefix}${b.name}`,
                 lastCommitDate: new Date(b.target.committedDate),
-                requireClosedPR: pattern.requireClosedPR
+                requireClosedPR: pattern.requireClosedPR,
+                pattern: pattern.prefix
               }))
+              
+              patternStats[pattern.prefix] = branches.length
+              console.log(`📊 Pattern "${pattern.prefix}": Tìm thấy ${branches.length} branches`)
+              
               branchesToDelete.push(...branches)
             }
 
@@ -56,16 +64,28 @@ jobs:
               .filter(b => b.name.startsWith('revert-'))
               .slice(0, 50)
 
+            patternStats['revert-'] = revertBranches.length
+            console.log(`📊 Pattern "revert-": Tìm thấy ${revertBranches.length} branches`)
+
             for (const b of revertBranches) {
               const { data: branchDetail } = await github.rest.repos.getBranch({
                 owner, repo, branch: b.name
               })
 
               branchesToDelete.push({
-                name: ``,
+                name: b.name,
                 lastCommitDate: new Date(branchDetail.commit.commit.committer.date),
-                requireClosedPR: true
+                requireClosedPR: true,
+                pattern: 'revert-'
               })
             }
 
-            
+            console.log('================================')
+            let totalBranches = 0
+            for (const [pattern, count] of Object.entries(patternStats)) {
+              console.log(`${pattern.padEnd(12)}: ${count} branches`)
+              totalBranches += count
+            }
+            console.log('================================')
+            console.log(`TOTAL    : ${totalBranches} branches`)
+            console.log('================================\n')
