@@ -50,7 +50,7 @@ jobs:
               }
 
               const mappedBranches = branches.map(branch => ({
-                name: `${pattern.prefix}${branch.name}`,
+                name: isRevert ? `${pattern.prefix}${branch.name}` : branch.name,
                 lastCommitDate: new Date(branch.target.committedDate),
                 requireClosedPR: pattern.requireClosedPR
               }))
@@ -61,4 +61,51 @@ jobs:
             }
 
             console.log(`Total branches fetched: ${branchesToDelete.length}`)
+
+            async function isBranchCanDelete(branchName) {
+              const { data: pullRequests } = await github.rest.pulls.list({
+                owner,
+                repo,
+                head: `${owner}:${branchName}`,
+                state: 'all'
+              })
+
+              if (pullRequests.length === 0) return true
+              return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
+            }
+
+            let totalDeleted = 0
+            let totalSkipped = 0
+
+            for (const branch of branchesToDelete) {
+              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+
+              if (daysSince < diffOfDate) {
+                console.log(`Skipped (recent commit): ${branch.name} (${daysSince} days old)`)
+                totalSkipped++
+                continue
+              }
+
+              let canDelete = true
+              if (branch.requireClosedPR) {
+                canDelete = await isBranchCanDelete(branch.name)
+              }
+
+              if (!canDelete) {
+                console.log(`Skipped (PR open): ${branch.name}`)
+                totalSkipped++
+                continue
+              }
+
+              try {
+                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                console.log(`Deleted: ${branch.name} (${daysSince} days old)`)
+                totalDeleted++
+              } catch (err) {
+                console.log(`Failed: ${branch.name} (${err.message})`)
+                totalSkipped++
+              }
+            }
+
+            console.log(`Summary: Deleted=${totalDeleted}, Skipped=${totalSkipped}`)
 
