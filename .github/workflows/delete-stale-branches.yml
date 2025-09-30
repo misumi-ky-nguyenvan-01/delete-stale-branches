@@ -50,7 +50,7 @@ jobs:
               }
 
               const mappedBranches = branches.map(branch => ({
-                name: isRevert ? `${pattern.prefix}${branch.name}` : branch.name,
+                name: isRevert ? branch.name : `${pattern.prefix}${branch.name}`,
                 lastCommitDate: new Date(branch.target.committedDate),
                 requireClosedPR: pattern.requireClosedPR
               }))
