@@ -33,7 +33,7 @@ jobs:
 
               const query = `{
                 repository(owner: "${owner}", name: "${repo}") {
-                  refs(refPrefix: "${refPrefix}", first: 100) {
+                  refs(refPrefix: "${refPrefix}", first: 500) {
                     nodes {
                       name
                       target { ... on Commit { committedDate } }
