@@ -1,8 +1,5 @@
 name: Delete stale branches (One Fetch)
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:
@@ -17,7 +14,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const diffOfDate = 90 // số ngày kể từ commit cuối cùng
+            const diffOfDate = 90
 
             const branchPatterns = [
               { prefix: 'feature/', requireClosedPR: true },
@@ -71,7 +68,7 @@ jobs:
             }
 
             const allBranches = await fetchAllBranches()
-            console.log(`Total branches fetched: ${allBranches.length}`)
+            console.log(`取得したブランチ総数: ${allBranches.length}`)
 
             let branchesToDelete = []
             const patternStats = {}
@@ -89,11 +86,11 @@ jobs:
 
               branchesToDelete.push(...mapped)
 
-              console.log(`Pattern "${pattern.prefix}": ${matched.length} branches`)
-              console.log(`First branch: ${matched[0]?.name || 'N/A'}`)
+              console.log(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
+              console.log(`最初のブランチ: ${matched[0]?.name || 'なし'}`)
             }
 
-            console.log(`Total branches to check delete: ${branchesToDelete.length}`)
+            console.log(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
 
             async function isBranchCanDelete(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
@@ -113,7 +110,7 @@ jobs:
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
               if (daysSince < diffOfDate) {
-                console.log(`⏩ Skipped (recent): ${branch.name} (${daysSince} days old)`)
+                console.log(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
                 totalSkipped++
                 continue
               }
@@ -124,23 +121,23 @@ jobs:
               }
 
               if (!canDelete) {
-                console.log(`🚫 Skipped (PR open): ${branch.name}`)
+                console.log(`🚫 スキップ（PR開放中）: ${branch.name}`)
                 totalSkipped++
                 continue
               }
 
               try {
                 await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                console.log(`✅  Deleted: ${branch.name} (${daysSince} days old)`)
+                console.log(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
                 totalDeleted++
               } catch (err) {
-                console.log(`❌ Failed: ${branch.name} (${err.message})`)
+                console.log(`❌ 削除失敗: ${branch.name} (${err.message})`)
                 totalSkipped++
               }
             }
 
-            console.log('Summary:')
+            console.log('概要:')
             for (const [pattern, count] of Object.entries(patternStats)) {
-              console.log(`- ${pattern.padEnd(10)}: ${count} branches`)
+              console.log(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
-            console.log(`Summary: ✅ Deleted=${totalDeleted}, ⏩ Skipped=${totalSkipped}`)
+            console.log(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
