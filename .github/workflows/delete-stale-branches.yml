@@ -1,6 +1,19 @@
 name: Delete stale branches (One Fetch)
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true の場合、実際にはブランチを削除しません（デフォルト: true）'
+        required: false
+        default: 'true'
+      max_deletions:
+        description: '一度の実行で削除する最大ブランチ数（デフォルト: 50）'
+        required: false
+        default: '50'
+      diff_or_date:
+        description: '最終コミットからの経過日数（デフォルト: 90）'
+        required: false
+        default: '90'
 
 jobs:
   delete-stale-branches:
@@ -14,7 +27,16 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const diffOfDate = 90
+            const fs = require('fs')
+            const path = require('path')
+
+            const LOG_FILE_PATH = path.join(__dirname, '..', 'logs', 'deleted-branches.log')
+            const logDir = path.dirname(LOG_FILE_PATH)
+            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
+            
+            const DIFF_OR_DATE = parseInt(core.getInput('diff_or_date'))
+            const MAX_DELETIONS = parseInt(core.getInput('max_deletions'))
+            const DRY_RUN = core.getInput('dry_run') === 'true'
 
             const branchPatterns = [
               { prefix: 'feature/', requireClosedPR: true },
@@ -67,7 +89,14 @@ jobs:
               return allBranches
             }
 
-            const allBranches = await fetchAllBranches()
+            let allBranches = []
+
+            try {
+              allBranches = await fetchAllBranches()
+            } catch (error) {
+              console.error(`Error fetching branches: ${error.message}`)
+              process.exit(1)
+            }
             console.log(`取得したブランチ総数: ${allBranches.length}`)
 
             let branchesToDelete = []
@@ -92,7 +121,7 @@ jobs:
 
             console.log(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
 
-            async function isBranchCanDelete(branchName) {
+            async function isDeletableBranch(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
                 owner,
                 repo,
@@ -109,7 +138,7 @@ jobs:
             for (const branch of branchesToDelete) {
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
-              if (daysSince < diffOfDate) {
+              if (daysSince < DIFF_OR_DATE) {
                 console.log(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
                 totalSkipped++
                 continue
@@ -117,7 +146,7 @@ jobs:
 
               let canDelete = true
               if (branch.requireClosedPR) {
-                canDelete = await isBranchCanDelete(branch.name)
+                canDelete = await isDeletableBranch(branch.name)
               }
 
               if (!canDelete) {
@@ -127,9 +156,22 @@ jobs:
               }
 
               try {
-                await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                if (DRY_RUN) {
+                  console.log(` [DRY-RUN] 削除対象: ${branch.name}`)
+                } else {
+                  await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                  const deletionLog = `${branch.name} - 削除日: ${new Date().toISOString()}\n`
+                  fs.appendFileSync(LOG_FILE_PATH, deletionLog)
+                }
+
                 console.log(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
                 totalDeleted++
+
+                if (totalDeleted >= MAX_DELETIONS) {
+                  console.log(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
+                  console.log(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
+                  break
+                }
               } catch (err) {
                 console.log(`❌ 削除失敗: ${branch.name} (${err.message})`)
                 totalSkipped++
