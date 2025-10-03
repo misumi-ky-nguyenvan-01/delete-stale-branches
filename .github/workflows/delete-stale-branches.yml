@@ -49,7 +49,7 @@ jobs:
 
             function writeLog(message) {
               const timestamp = new Date().toISOString()
-              const logEntry = `[${timestamp}] ${message}\n`
+              const logEntry = `[${timestamp}] ${message}`
               execSync(`echo "${logEntry}" >> ${LOG_FILE_PATH}`)
             }
 
@@ -96,39 +96,6 @@ jobs:
               return allBranches
             }
 
-            let allBranches = []
-
-            try {
-              allBranches = await fetchAllBranches()
-            } catch (error) {
-              console.error(`ブランチの取得中にエラーが発生しました: ${error.message}`)
-              process.exit(1)
-            }
-
-            console.log(`取得したブランチ総数: ${allBranches.length}`)
-
-            let branchesToDelete = []
-            const patternStats = {}
-
-            for (const pattern of branchPatterns) {
-              const matched = allBranches.filter(branch => branch.name.startsWith(pattern.prefix))
-              patternStats[pattern.prefix] = matched.length
-
-              const mapped = matched.map(branch => ({
-                name: branch.name,
-                lastCommitDate: branch.lastCommitDate,
-                requireClosedPR: pattern.requireClosedPR,
-                pattern: pattern.prefix
-              }))
-
-              branchesToDelete.push(...mapped)
-
-              console.log(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
-              console.log(`最初のブランチ: ${matched[0]?.name || 'なし'}`)
-            }
-
-            console.log(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
-
             async function isDeletableBranch(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
                 owner,
@@ -140,47 +107,99 @@ jobs:
               return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
             }
 
-            let totalDeleted = 0
-            let totalSkipped = 0
+            async function filterDeletableBranches(allBranches) {
+              const branchesToDelete = []
+              const patternStats = {}
 
-            for (const branch of branchesToDelete) {
-              const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
-
-              if (daysSince < DIFF_OR_DATE) {
-                console.log(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
-                totalSkipped++
-                continue
+              for (const pattern of branchPatterns) {
+                patternStats[pattern.prefix] = 0
               }
 
-              let canDelete = true
-              if (branch.requireClosedPR) {
-                canDelete = await isDeletableBranch(branch.name)
-              }
+              for (const branch of allBranches) {
+                const matchedPattern = branchPatterns.find(pattern => 
+                  branch.name.startsWith(pattern.prefix)
+                )
 
-              if (!canDelete) {
-                console.log(`🚫 スキップ（PR開放中）: ${branch.name}`)
-                totalSkipped++
-                continue
-              }
-
-              try {
-                if (DRY_RUN) {
-                  console.log(` [DRY-RUN] 削除対象: ${branch.name}`)
-                } else {
-                  await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
+                if (!matchedPattern) {
+                  continue
                 }
 
-                writeLog(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
-                totalDeleted++
+                patternStats[matchedPattern.prefix]++
 
-                if (totalDeleted >= MAX_DELETIONS) {
-                  console.log(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
-                  console.log(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
-                  break
+                const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
+                if (daysSince < DIFF_OR_DATE) {
+                  continue
                 }
-              } catch (err) {
-                console.log(`❌ 削除失敗: ${branch.name} (${err.message})`)
-                totalSkipped++
+
+                let canDelete = true
+                if (matchedPattern.requireClosedPR) {
+                  canDelete = await isDeletableBranch(branch.name)
+                }
+
+                if (!canDelete) {
+                  continue
+                }
+
+                branchesToDelete.push({
+                  name: branch.name,
+                  lastCommitDate: branch.lastCommitDate,
+                  requireClosedPR: matchedPattern.requireClosedPR,
+                  pattern: matchedPattern.prefix,
+                  daysSince: daysSince
+                })
+              }
+
+              return { branchesToDelete, patternStats }
+            }
+
+            let allBranches = []
+
+            try {
+              allBranches = await fetchAllBranches()
+            } catch (error) {
+              console.error(`ブランチの取得中にエラーが発生しました: ${error.message}`)
+              process.exit(1)
+            }
+
+            console.log(`取得したブランチ総数: ${allBranches.length}`)
+
+            const { branchesToDelete, patternStats } = await filterDeletableBranches(allBranches)
+
+            console.log(`削除対象ブランチ総数: ${branchesToDelete.length}`)
+
+            const branchesToDeleteNow = branchesToDelete.slice(0, MAX_DELETIONS)
+            const remainingBranches = branchesToDelete.length - branchesToDeleteNow.length
+
+            console.log(`今回削除予定: ${branchesToDeleteNow.length} ブランチ`)
+            if (remainingBranches > 0) {
+              console.log(`残り ${remainingBranches} ブランチは次回実行時に削除されます`)
+            }
+
+            if (branchesToDeleteNow.length > 0) {
+              if (DRY_RUN) {
+                for (const branch of branchesToDeleteNow) {
+                  console.log(` [DRY-RUN] 削除対象: ${branch.name} (${branch.daysSince}日前)`)
+                }
+              } else {
+                const branchNames = branchesToDeleteNow.map(branch => branch.name).join(' ')
+                
+                try {
+                  execSync(`git push origin --delete ${branchNames}`, { 
+                    cwd: process.cwd(),
+                    stdio: 'pipe',
+                    encoding: 'utf8'
+                  })
+                  
+                  console.log('✅ すべてのブランチの削除が完了しました')
+                  
+                  for (const branch of branchesToDeleteNow) {
+                    const logEntry = `✅ 削除完了: ${branch.name} (${branch.daysSince}日前)`
+                    writeLog(logEntry)
+                    console.log(logEntry)
+                  }
+                } catch (gitError) {
+                  console.error(`❌ git push --delete でエラーが発生しました: ${gitError.message}`)
+                }
               }
             }
 
