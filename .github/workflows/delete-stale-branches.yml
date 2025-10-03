@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Create logs directory
         run: mkdir -p .github/logs
 
@@ -50,7 +50,6 @@ jobs:
             function writeLog(message) {
               const timestamp = new Date().toISOString()
               const logEntry = `[${timestamp}] ${message}\n`
-              console.log(message)
               execSync(`echo "${logEntry}" >> ${LOG_FILE_PATH}`)
             }
 
@@ -171,7 +170,7 @@ jobs:
                   await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
                 }
 
-                writeLog(`削除完了: ${branch.name} (${daysSince}日前)`)
+                writeLog(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
                 totalDeleted++
 
                 if (totalDeleted >= MAX_DELETIONS) {
