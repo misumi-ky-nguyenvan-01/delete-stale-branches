@@ -204,6 +204,18 @@ jobs:
             echo "Log file not found"
           fi
 
+      - name: Commit log file to repository
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add logs/deleted-branches.log
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Add deleted branches log - $(date '+%Y-%m-%d %H:%M:%S')"
+            git push
+          fi
+
       - name: Upload log file as artifact
         uses: actions/upload-artifact@v4
         if: always()
