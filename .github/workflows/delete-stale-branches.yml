@@ -22,11 +22,6 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Create logs directory
-        run: mkdir -p .github/logs
-
       - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -102,11 +97,11 @@ jobs:
             try {
               allBranches = await fetchAllBranches()
             } catch (error) {
-              const errorMsg = `Error fetching branches: ${error.message}`
-              writeLog(errorMsg)
+              console.error(`ブランチの取得中にエラーが発生しました: ${error.message}`)
               process.exit(1)
             }
-            writeLog(`取得したブランチ総数: ${allBranches.length}`)
+
+            console.log(`取得したブランチ総数: ${allBranches.length}`)
 
             let branchesToDelete = []
             const patternStats = {}
@@ -124,11 +119,11 @@ jobs:
 
               branchesToDelete.push(...mapped)
 
-              writeLog(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
-              if (matched[0]) writeLog(`最初のブランチ: ${matched[0].name}`)
+              console.log(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
+              console.log(`最初のブランチ: ${matched[0]?.name || 'なし'}`)
             }
 
-            writeLog(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
+            console.log(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
 
             async function isDeletableBranch(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
@@ -148,7 +143,7 @@ jobs:
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
               if (daysSince < DIFF_OR_DATE) {
-                writeLog(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
+                console.log(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
                 totalSkipped++
                 continue
               }
@@ -159,37 +154,38 @@ jobs:
               }
 
               if (!canDelete) {
-                writeLog(`🚫 スキップ（PR開放中）: ${branch.name}`)
+                console.log(`🚫 スキップ（PR開放中）: ${branch.name}`)
                 totalSkipped++
                 continue
               }
 
               try {
                 if (DRY_RUN) {
-                  writeLog(`[DRY-RUN] 削除対象: ${branch.name} (${daysSince}日前)`)
+                  console.log(` [DRY-RUN] 削除対象: ${branch.name}`)
                 } else {
                   await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                  writeLog(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
                 }
 
+                writeLog(`削除完了: ${branch.name} (${daysSince}日前)`)
                 totalDeleted++
 
                 if (totalDeleted >= MAX_DELETIONS) {
-                  writeLog(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
-                  writeLog(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
+                  console.log(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
+                  console.log(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
                   break
                 }
               } catch (err) {
-                writeLog(`❌ 削除失敗: ${branch.name} (${err.message})`)
+                console.log(`❌ 削除失敗: ${branch.name} (${err.message})`)
                 totalSkipped++
               }
             }
 
-            writeLog('概要:')
+            console.log('概要:')
             for (const [pattern, count] of Object.entries(patternStats)) {
-              writeLog(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
+              console.log(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
-            writeLog(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
+
+            console.log(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
 
       - name: Commit log file to repository
         run: |
@@ -199,7 +195,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "変更はありません。コミットをスキップします。"
           else
-            git commit -m "削除されたブランチのログを追加 - $(date '+%Y-%m-%d %H:%M:%S')"
+            git commit -m "chore(github action log): 削除されたブランチのログを追加 - $(date '+%Y-%m-%d %H:%M:%S')"
             git push
           fi
 
