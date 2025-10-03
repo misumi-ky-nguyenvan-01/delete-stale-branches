@@ -189,11 +189,7 @@ jobs:
                 const branchNames = branchesToDeleteNow.map(branch => branch.name).join(' ')
                 
                 try {
-                  execSync(`git push origin --delete ${branchNames}`, { 
-                    cwd: process.cwd(),
-                    stdio: 'pipe',
-                    encoding: 'utf8'
-                  })
+                  execSync(`git push origin --delete ${branchNames}`, { stdio: 'inherit' })
                   
                   console.log('✅ すべてのブランチの削除が完了しました')
                   
