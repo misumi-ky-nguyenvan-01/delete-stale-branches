@@ -185,12 +185,6 @@ jobs:
                 for (const branch of branchesToDeleteNow) {
                   console.log(` [DRY-RUN] 削除対象: ${branch.name} (${branch.daysSince}日前)`)
                 }
-
-                for (const branch of branchesToDeleteNow) {
-                  const logEntry = `✅ 削除完了: ${branch.name} (${branch.daysSince}日前)`
-                  writeLog(logEntry)
-                  console.log(logEntry)
-                }
               } else {
                 const branchNames = branchesToDeleteNow.map(branch => branch.name).join(' ')
                 
