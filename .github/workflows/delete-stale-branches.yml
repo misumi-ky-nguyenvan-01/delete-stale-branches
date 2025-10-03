@@ -75,15 +75,10 @@ jobs:
                 const result = await github.graphql(query, { owner, repo })
                 const branches = result.repository.refs.nodes
 
-                const listBranches = branches.map(branch => {
-                  const commitDate = new Date(branch.target.committedDate)
-                  const daysSince = Math.floor((Date.now() - commitDate.getTime()) / (1000 * 60 * 60 * 24))
-                  core.info(`取得ブランチ: ${branch.name}, ${daysSince}日前`)
-                  return {
-                    name: branch.name,
-                    lastCommitDate: new Date(branch.target.committedDate)
-                  }
-                })
+                const listBranches = branches.map(branch => ({
+                  name: branch.name,
+                  lastCommitDate: new Date(branch.target.committedDate)
+                }))
 
                 return listBranches
               } catch (error) {
@@ -167,7 +162,7 @@ jobs:
                   core.info(` [DRY-RUN] 削除対象: ${branch.name} (${branch.daysSince}日前)`)
                 }
               } else {
-                const branchNames = branchesToDelete.slice(0, 2).map(branch => branch.name).join(' ')
+                const branchNames = branchesToDelete.map(branch => branch.name).join(' ')
                 
                 try {
                   execSync(`git push origin --delete ${branchNames}`, { stdio: 'inherit' })
@@ -190,8 +185,9 @@ jobs:
               core.info(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
 
+            const deletedCount = DRY_RUN ? 0 : branchesToDelete.length
             const skippedCount = listBranches.length - branchesToDelete.length
-            core.info(`概要: ✅ 削除=${branchesToDelete.length}、⏩ スキップ=${skippedCount}`)
+            core.info(`概要: ✅ 削除=${deletedCount}、⏩ スキップ=${skippedCount}`)
 
             await core.summary
               .addHeading('ブランチ削除結果')
@@ -200,7 +196,7 @@ jobs:
                 ['実行モード', DRY_RUN ? 'DRY-RUN' : '実際削除'],
                 ['対象期間', `${DIFF_OR_DATE}日以上`],
                 ['取得ブランチ総数', listBranches.length.toString()],
-                ['削除ブランチ数', branchesToDelete.length.toString()],
+                ['削除ブランチ数', deletedCount.toString()],
                 ['スキップブランチ数', skippedCount.toString()]
               ])
               .addDetails('パターン別統計', 
