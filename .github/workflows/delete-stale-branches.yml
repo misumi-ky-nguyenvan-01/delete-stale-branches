@@ -75,10 +75,14 @@ jobs:
                 const result = await github.graphql(query, { owner, repo })
                 const branches = result.repository.refs.nodes
 
-                const listBranches = branches.map(branch => ({
-                  name: branch.name,
-                  lastCommitDate: new Date(branch.target.committedDate)
-                }))
+                const listBranches = branches.map(branch => {
+                  const daysSince = Math.floor((Date.now() - branch.target.committedDate.getTime()) / (1000 * 60 * 60 * 24))
+                  core.info(`取得ブランチ: ${branch.name}, ${daysSince}日前`)
+                  return {
+                    name: branch.name,
+                    lastCommitDate: new Date(branch.target.committedDate)
+                  }
+                })
 
                 return listBranches
               } catch (error) {
