@@ -60,7 +60,7 @@ jobs:
                 const query = `
                   query($owner: String!, $repo: String!) {
                     repository(owner: $owner, name: $repo) {
-                      refs(refPrefix: "refs/heads/", first: 2, orderBy: {field: TAG_COMMIT_DATE, direction: ASC}) {
+                      refs(refPrefix: "refs/heads/", first: 100, orderBy: {field: TAG_COMMIT_DATE, direction: ASC}) {
                         nodes {
                           name
                           target {
@@ -162,7 +162,7 @@ jobs:
                   core.info(` [DRY-RUN] 削除対象: ${branch.name} (${branch.daysSince}日前)`)
                 }
               } else {
-                const branchNames = branchesToDelete.map(branch => branch.name).join(' ')
+                const branchNames = branchesToDelete.slice(0, 2).map(branch => branch.name).join(' ')
                 
                 try {
                   execSync(`git push origin --delete ${branchNames}`, { stdio: 'inherit' })
