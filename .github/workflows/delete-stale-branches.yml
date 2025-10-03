@@ -22,23 +22,32 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create log directory
+        run: mkdir -p logs
+
       - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
-            const fs = require('fs')
-            const path = require('path')
-
-            const LOG_FILE_PATH = path.join(process.cwd(), 'logs', 'deleted-branches.log')
-            const logDir = path.dirname(LOG_FILE_PATH)
-            if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
+            const { execSync } = require('child_process')
+            
+            const LOG_FILE_PATH = 'logs/deleted-branches.log'
+            
+            function writeLog(message) {
+              const timestamp = new Date().toISOString()
+              const logEntry = `[${timestamp}] ${message}\n`
+              console.log(message)
+              execSync(`echo "${logEntry}" >> ${LOG_FILE_PATH}`)
+            }
             
             const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}')
             const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}')
             const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
 
-            console.log(`設定値: DRY_RUN=${DRY_RUN}, MAX_DELETIONS=${MAX_DELETIONS}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
+            writeLog(`設定値: DRY_RUN=${DRY_RUN}, MAX_DELETIONS=${MAX_DELETIONS}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
 
             const branchPatterns = [
               { prefix: 'feature/', requireClosedPR: true },
@@ -96,10 +105,11 @@ jobs:
             try {
               allBranches = await fetchAllBranches()
             } catch (error) {
-              console.error(`Error fetching branches: ${error.message}`)
+              const errorMsg = `Error fetching branches: ${error.message}`
+              writeLog(errorMsg)
               process.exit(1)
             }
-            console.log(`取得したブランチ総数: ${allBranches.length}`)
+            writeLog(`取得したブランチ総数: ${allBranches.length}`)
 
             let branchesToDelete = []
             const patternStats = {}
@@ -117,11 +127,11 @@ jobs:
 
               branchesToDelete.push(...mapped)
 
-              console.log(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
-              console.log(`最初のブランチ: ${matched[0]?.name || 'なし'}`)
+              writeLog(`パターン "${pattern.prefix}": ${matched.length} ブランチ`)
+              if (matched[0]) writeLog(`最初のブランチ: ${matched[0].name}`)
             }
 
-            console.log(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
+            writeLog(`削除対象チェックするブランチ総数: ${branchesToDelete.length}`)
 
             async function isDeletableBranch(branchName) {
               const { data: pullRequests } = await github.rest.pulls.list({
@@ -141,7 +151,7 @@ jobs:
               const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
 
               if (daysSince < DIFF_OR_DATE) {
-                console.log(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
+                writeLog(`⏩ スキップ（最近のコミット）: ${branch.name} (${daysSince}日前)`)
                 totalSkipped++
                 continue
               }
@@ -152,36 +162,52 @@ jobs:
               }
 
               if (!canDelete) {
-                console.log(`🚫 スキップ（PR開放中）: ${branch.name}`)
+                writeLog(`🚫 スキップ（PR開放中）: ${branch.name}`)
                 totalSkipped++
                 continue
               }
 
               try {
                 if (DRY_RUN) {
-                  console.log(` [DRY-RUN] 削除対象: ${branch.name}`)
+                  writeLog(`[DRY-RUN] 削除対象: ${branch.name}`)
                 } else {
                   await github.rest.git.deleteRef({ owner, repo, ref: `heads/${branch.name}` })
-                  const deletionLog = `${branch.name} - 削除日: ${new Date().toISOString()}\n`
-                  fs.appendFileSync(LOG_FILE_PATH, deletionLog)
+                  writeLog(`✅ 削除完了: ${branch.name} (削除日: ${new Date().toISOString()})`)
                 }
 
-                console.log(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
+                writeLog(`✅ 削除完了: ${branch.name} (${daysSince}日前)`)
                 totalDeleted++
 
                 if (totalDeleted >= MAX_DELETIONS) {
-                  console.log(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
-                  console.log(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
+                  writeLog(`最大削除数 ${MAX_DELETIONS} に達しました。終了します。`)
+                  writeLog(`残り ${branchesToDelete.length - (branchesToDelete.indexOf(branch) + 1)} ブランチは次回実行時に削除されます`)
                   break
                 }
               } catch (err) {
-                console.log(`❌ 削除失敗: ${branch.name} (${err.message})`)
+                writeLog(`❌ 削除失敗: ${branch.name} (${err.message})`)
                 totalSkipped++
               }
             }
 
-            console.log('概要:')
+            writeLog('概要:')
             for (const [pattern, count] of Object.entries(patternStats)) {
-              console.log(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
+              writeLog(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
-            console.log(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
+            writeLog(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
+
+      - name: Display log file content
+        run: |
+          if [ -f logs/deleted-branches.log ]; then
+            echo "=== Log File Content ==="
+            cat logs/deleted-branches.log
+          else
+            echo "Log file not found"
+          fi
+
+      - name: Upload log file as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deleted-branches-logs
+          path: logs/deleted-branches.log
+          retention-days: 30
