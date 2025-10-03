@@ -54,7 +54,7 @@ jobs:
               execSync(`echo "${logEntry}" >> ${LOG_FILE_PATH}`)
             }
 
-            # 最も古いコミットを持つ100個ブランチを取得する
+            // 最も古いコミットを持つ100個ブランチを取得する
             async function fetchBranches() {
               try {
                 const query = `
@@ -184,3 +184,22 @@ jobs:
             for (const [pattern, count] of Object.entries(patternStats)) {
               core.info(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
+
+            core.info(`概要: ✅ 削除=${branchesToDelete.length}、⏩ スキップ=${listBranches.length - branchesToDelete.length}`)
+
+            await core.summary
+              .addHeading('ブランチ削除結果')
+              .addTable([
+                [{data: '項目', header: true}, {data: '値', header: true}],
+                ['実行モード', DRY_RUN ? 'DRY-RUN' : '実際削除'],
+                ['対象期間', `${DIFF_OR_DATE}日以上`],
+                ['取得ブランチ総数', listBranches.length.toString()],
+                ['削除ブランチ数', branchesToDelete.length.toString()],
+                ['スキップブランチ数', skippedCount.toString()]
+              ])
+              .addDetails('パターン別統計', 
+                Object.entries(patternStats)
+                  .map(([pattern, count]) => `- ${pattern}: ${count} ブランチ`)
+                  .join('\n')
+              )
+              .write()
