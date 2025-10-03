@@ -213,7 +213,7 @@ jobs:
               console.log(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
             }
 
-            console.log(`概要: ✅ 削除=${totalDeleted}、⏩ スキップ=${totalSkipped}`)
+            console.log(`概要: ✅ 削除=${branchesToDeleteNow.length}、⏩ スキップ=${allBranches.length - branchesToDeleteNow.length}`)
 
       - name: Commit log file to repository
         run: |
