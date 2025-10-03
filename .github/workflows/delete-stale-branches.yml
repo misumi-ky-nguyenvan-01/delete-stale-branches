@@ -1,5 +1,8 @@
 name: Delete stale branches (One Fetch)
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       dry_run:
@@ -34,9 +37,11 @@ jobs:
             const { owner, repo } = context.repo
             const { execSync } = require('child_process')
             const LOG_FILE_PATH = '.github/logs/deleted-branches.log'
-            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}')
-            const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}')
-            const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
+            
+            // デフォルト値を設定（push イベントの場合は inputs が undefined になるため）
+            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}' || '90')
+            const MAX_DELETIONS = parseInt('${{ inputs.max_deletions }}' || '50')
+            const DRY_RUN = ('${{ inputs.dry_run }}' || 'true') === 'true'
 
             console.log(`設定値: DRY_RUN=${DRY_RUN}, MAX_DELETIONS=${MAX_DELETIONS}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
 
