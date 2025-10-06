@@ -133,8 +133,8 @@ jobs:
               .addTable([
                 [{ data: '項目', header: true }, { data: '詳細', header: true }],
                 ['Stale判定条件', `${DIFF_OR_DATE}日以上コミットがないもの`],
-                ['取得ブランチ数', branchesFetched.length],
-                ['削除ブランチ数', branchesToDelete.length],
+                ['取得ブランチ数', `${branchesFetched.length}`],
+                ['削除ブランチ数', `${branchesToDelete.length}`],
             ])
             .addList(branchesToDelete.map(({ name, lastCommitDate }) => `${lastCommitDate.toLocaleDateString()}: ${name}`))
             .write()
