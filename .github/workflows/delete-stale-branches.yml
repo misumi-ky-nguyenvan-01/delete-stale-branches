@@ -9,11 +9,13 @@ on:
       dry_run:
         description: 'true の場合、実際にはブランチを削除しません（デフォルト: true）'
         required: false
-        default: 'true'
+        type: boolean
+        default: true
       diff_or_date:
         description: '最終コミットからの経過日数（デフォルト: 90）'
         required: false
-        default: '90'
+        type: number
+        default: 90
 
 jobs:
   delete-stale-branches:
@@ -22,37 +24,29 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Create logs directory
-        run: mkdir -p .github/logs
-
       - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo
             const { execSync } = require('child_process')
-            const LOG_FILE_PATH = '.github/logs/deleted-branches.log'
 
             // デフォルト値を設定（push イベントの場合は inputs が undefined になるため）
-            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}' || '90')
-            const DRY_RUN = ('${{ inputs.dry_run }}' || 'true') === 'true'
+            const DRY_RUN = core.getInput('dry_run', { required: false })
+            const DIFF_OR_DATE = core.getInput('diff_or_date', { required: false })
+
+
+            console.log(DRY_RUN)
+            console.log(DIFF_OR_DATE)
 
             core.info(`設定値: DRY_RUN=${DRY_RUN}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
 
             const branchPatterns = [
-              { prefix: 'feature/', requireClosedPR: true },
-              { prefix: 'test/', requireClosedPR: false },
-              { prefix: 'release/', requireClosedPR: false },
-              { prefix: 'revert-', requireClosedPR: true }
+              { prefix: 'feature/', requireMergedPR: true },
+              { prefix: 'test/', requireMergedPR: false },
+              { prefix: 'release/', requireMergedPR: false },
+              { prefix: 'revert-', requireMergedPR: true }
             ]
-
-            function writeLog(message) {
-              const timestamp = new Date().toISOString()
-              const logEntry = `[${timestamp}] ${message}`
-              execSync(`echo "${logEntry}" >> ${LOG_FILE_PATH}`)
-            }
 
             // 最も古いコミットを持つ100個ブランチを取得する
             async function fetchBranches() {
@@ -72,136 +66,77 @@ jobs:
                   }
                 `
 
-                const result = await github.graphql(query, { owner, repo })
-                const branches = result.repository.refs.nodes
-
-                const listBranches = branches.map(branch => ({
-                  name: branch.name,
-                  lastCommitDate: new Date(branch.target.committedDate)
+                const { repository } = await github.graphql(query, { owner, repo })
+                return repository.refs.nodes.map(({ name, target }) => ({
+                  name,
+                  lastCommitDate: new Date(target.committedDate),
                 }))
-
-                return listBranches
               } catch (error) {
-                core.setFailed(`ブランチ取得エラー: ${error.message}`)
+                core.setFailed(`ブランチ取得エラー: ${error}`)
                 throw error
               }
             }
 
-            async function isDeletableBranch(branchName) {
+            async function hasMergedPR(branchName) {
               try {
                 const { data: pullRequests } = await github.rest.pulls.list({
                   owner,
                   repo,
                   head: `${owner}:${branchName}`,
-                  state: 'all'
+                  state: 'all',
                 })
 
-                if (pullRequests.length === 0) return true
-                return pullRequests.every(pr => pr.state === 'closed' || pr.state === 'merged')
+                return (
+                  pullRequests.length > 0 &&
+                  pullRequests.some(({ merged_at }) => merged_at !== null) &&
+                  pullRequests.every(({ state }) => state !== 'open')
+                )
               } catch (error) {
-                core.info(`PR確認エラー (${branchName}): ${error.message}`)
+                core.info(`PR確認エラー (${branchName}): ${error}`)
                 return false
               }
             }
 
-            async function filterDeletableBranches(listBranches) {
-              const branchesToDelete = []
-              const patternStats = {}
+            const isDeletable = async ({ name, lastCommitDate }) => {
+              const daysSince = (Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24)
+              if (daysSince < DIFF_OR_DATE) return false
 
-              for (const pattern of branchPatterns) {
-                patternStats[pattern.prefix] = 0
-              }
+              const matchedPattern = branchPatterns.find(({ prefix }) => name.startsWith(prefix))
+              if (!matchedPattern) return false
 
-              for (const branch of listBranches) {
-                const matchedPattern = branchPatterns.find(pattern => 
-                  branch.name.startsWith(pattern.prefix)
-                )
-
-                if (!matchedPattern) {
-                  continue
-                }
-
-                patternStats[matchedPattern.prefix]++
-
-                const daysSince = Math.floor((Date.now() - branch.lastCommitDate.getTime()) / (1000 * 60 * 60 * 24))
-                if (daysSince < DIFF_OR_DATE) {
-                  continue
-                }
-
-                let canDelete = true
-                if (matchedPattern.requireClosedPR) {
-                  canDelete = await isDeletableBranch(branch.name)
-                }
-
-                if (!canDelete) {
-                  continue
-                }
-
-                branchesToDelete.push({
-                  name: branch.name,
-                  lastCommitDate: branch.lastCommitDate,
-                  requireClosedPR: matchedPattern.requireClosedPR,
-                  pattern: matchedPattern.prefix,
-                  daysSince: daysSince
-                })
-              }
-
-              return { branchesToDelete, patternStats }
+              return !matchedPattern.requireMergedPR || await hasMergedPR(name)
             }
 
-            const listBranches = await fetchBranches()
-            core.info(`取得したブランチ総数: ${listBranches.length}`)
+            const branchesFetched = await fetchBranches()
+            core.info(`取得したブランチ総数: ${branchesFetched.length}`)
 
-            const { branchesToDelete, patternStats } = await filterDeletableBranches(listBranches)
+            const branchesToDelete = []
+            for (const branch of branchesFetched) {
+              if (await isDeletable(branch)) {
+                branchesToDelete.push(branch)
+              }
+            }
 
             core.info(`今回削除予定: ${branchesToDelete.length} ブランチ`)
 
-            if (branchesToDelete.length > 0) {
-              if (DRY_RUN) {
-                for (const branch of branchesToDelete) {
-                  core.info(` [DRY-RUN] 削除対象: ${branch.name} (${branch.daysSince}日前)`)
-                }
-              } else {
-                const branchNames = branchesToDelete.map(branch => branch.name).join(' ')
-                
-                try {
-                  execSync(`git push origin --delete ${branchNames}`, { stdio: 'inherit' })
-                  
-                  core.info('✅ すべてのブランチの削除が完了しました')
-                  
-                  for (const branch of branchesToDelete) {
-                    const logEntry = `✅ 削除完了: ${branch.name} (${branch.daysSince}日前)`
-                    writeLog(logEntry)
-                    core.info(logEntry)
-                  }
-                } catch (gitError) {
-                  core.setFailed(`❌ git push --delete でエラーが発生しました: ${gitError.message}`)
-                }
+            if (branchesToDelete.length > 0 && !DRY_RUN) {
+              try {
+                const branchNames = branchesToDelete.map(({ name }) => name).join(' ')
+                execSync(`git push origin --delete ${branchNames}`, { stdio: 'inherit' })
+                core.info('✅ すべてのブランチの削除が完了しました')
+              } catch (error) {
+                core.setFailed(`❌ git push --delete でエラーが発生しました: ${error}`)
+                throw error
               }
             }
 
-            core.info('概要:')
-            for (const [pattern, count] of Object.entries(patternStats)) {
-              core.info(`- ${pattern.padEnd(10)}: ${count} ブランチ`)
-            }
-
-            const deletedCount = DRY_RUN ? 0 : branchesToDelete.length
-            const skippedCount = listBranches.length - branchesToDelete.length
-            core.info(`概要: ✅ 削除=${deletedCount}、⏩ スキップ=${skippedCount}`)
-
-            await core.summary
-              .addHeading('ブランチ削除結果')
+            core.summary
+              .addHeading(DRY_RUN ? '削除対象ブランチ（DRY-RUN）' : 'ブランチ削除結果')
               .addTable([
-                [{data: '項目', header: true}, {data: '値', header: true}],
-                ['実行モード', DRY_RUN ? 'DRY-RUN' : '実際削除'],
-                ['対象期間', `${DIFF_OR_DATE}日以上`],
-                ['取得ブランチ総数', listBranches.length.toString()],
-                ['削除ブランチ数', deletedCount.toString()],
-                ['スキップブランチ数', skippedCount.toString()]
-              ])
-              .addDetails('パターン別統計', 
-                Object.entries(patternStats)
-                  .map(([pattern, count]) => `- ${pattern}: ${count} ブランチ`)
-                  .join('\n')
-              )
-              .write()
+                [{ data: '項目', header: true }, { data: '詳細', header: true }],
+                ['Stale判定条件', `${DIFF_OR_DATE}日以上コミットがないもの`],
+                ['取得ブランチ数', branchesFetched.length],
+                ['削除ブランチ数', branchesToDelete.length],
+            ])
+            .addList(branchesToDelete.map(({ name, lastCommitDate }) => `${lastCommitDate.toLocaleDateString()}: ${name}`))
+            .write()
