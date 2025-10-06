@@ -37,10 +37,6 @@ jobs:
             const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}' || '90')
             const DRY_RUN = ('${{ inputs.dry_run }}' || 'true') === 'true'
 
-
-            console.log(DRY_RUN)
-            console.log(DIFF_OR_DATE)
-
             core.info(`設定値: DRY_RUN=${DRY_RUN}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
 
             const branchPatterns = [
