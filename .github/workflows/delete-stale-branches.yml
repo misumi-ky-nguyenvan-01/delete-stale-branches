@@ -24,6 +24,8 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -32,8 +34,8 @@ jobs:
             const { execSync } = require('child_process')
 
             // デフォルト値を設定（push イベントの場合は inputs が undefined になるため）
-            const DRY_RUN = core.getInput('dry_run', { required: false })
-            const DIFF_OR_DATE = core.getInput('diff_or_date', { required: false })
+            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}' || '90')
+            const DRY_RUN = ('${{ inputs.dry_run }}' || 'true') === 'true'
 
 
             console.log(DRY_RUN)
