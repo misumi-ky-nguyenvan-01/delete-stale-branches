@@ -11,7 +11,7 @@ on:
         required: false
         type: boolean
         default: true
-      diff_or_date:
+      days_until_stale:
         description: '最終コミットからの経過日数（デフォルト: 90）'
         required: false
         type: number
@@ -24,7 +24,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/github-script@v8
         with:
@@ -34,10 +34,10 @@ jobs:
             const { execSync } = require('child_process')
 
             // デフォルト値を設定（push イベントの場合は inputs が undefined になるため）
-            const DIFF_OR_DATE = parseInt('${{ inputs.diff_or_date }}' || '90')
-            const DRY_RUN = ('${{ inputs.dry_run }}' || 'true') === 'true'
+            const DAYS_UNTIL_STALE = parseInt('${{ inputs.days_until_stale }}') || 90
+            const DRY_RUN = '${{ inputs.dry_run }}' === 'true'
 
-            core.info(`設定値: DRY_RUN=${DRY_RUN}, DIFF_OR_DATE=${DIFF_OR_DATE}日`)
+            core.info(`設定値: DRY_RUN=${DRY_RUN}, DAYS_UNTIL_STALE=${DAYS_UNTIL_STALE}日`)
 
             const branchPatterns = [
               { prefix: 'feature/', requireMergedPR: true },
@@ -75,6 +75,7 @@ jobs:
               }
             }
 
+            // マージ済みPRが1つ以上存在し、オープンのPRが存在しない
             async function hasMergedPR(branchName) {
               try {
                 const { data: pullRequests } = await github.rest.pulls.list({
@@ -95,9 +96,11 @@ jobs:
               }
             }
 
+            // - 最終コミットからDAYS_UNTIL_STALE日以上経過している
+            // - requireMergedPRブランチの場合、マージ済みPRがあること
             const isDeletable = async ({ name, lastCommitDate }) => {
               const daysSince = (Date.now() - lastCommitDate.getTime()) / (1000 * 60 * 60 * 24)
-              if (daysSince < DIFF_OR_DATE) return false
+              if (daysSince < DAYS_UNTIL_STALE) return false
 
               const matchedPattern = branchPatterns.find(({ prefix }) => name.startsWith(prefix))
               if (!matchedPattern) return false
@@ -106,16 +109,9 @@ jobs:
             }
 
             const branchesFetched = await fetchBranches()
-            core.info(`取得したブランチ総数: ${branchesFetched.length}`)
-
-            const branchesToDelete = []
-            for (const branch of branchesFetched) {
-              if (await isDeletable(branch)) {
-                branchesToDelete.push(branch)
-              }
-            }
-
-            core.info(`今回削除予定: ${branchesToDelete.length} ブランチ`)
+            const branchesToDelete = (
+              await Promise.all(branchesFetched.map(async (branch) => await isDeletable(branch) ? branch : null))
+            ).filter(Boolean)
 
             if (branchesToDelete.length > 0 && !DRY_RUN) {
               try {
@@ -132,7 +128,7 @@ jobs:
               .addHeading(DRY_RUN ? '削除対象ブランチ（DRY-RUN）' : 'ブランチ削除結果')
               .addTable([
                 [{ data: '項目', header: true }, { data: '詳細', header: true }],
-                ['Stale判定条件', `${DIFF_OR_DATE}日以上コミットがないもの`],
+                ['Stale判定条件', `${DAYS_UNTIL_STALE}日以上コミットがないもの`],
                 ['取得ブランチ数', `${branchesFetched.length}`],
                 ['削除ブランチ数', `${branchesToDelete.length}`],
             ])
